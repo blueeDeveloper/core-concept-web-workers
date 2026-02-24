@@ -77,3 +77,110 @@ To avoid this, you can use Transferable Objects (like ArrayBuffer). This "moves"
 
 
 
+In React, Web Workers are a game-changer for maintaining a 60 FPS UI. Because React's reconciliation (the Virtual DOM diffing) and rendering happen on the main thread, any heavy data processing will cause "jank" or frozen animations.
+
+Using them in React requires a slightly different approach than plain JavaScript due to the component lifecycle and build tools like Webpack or Vite.
+
+🏗️ The Pattern: useWorker Logic
+The most robust way to use a Web Worker in React is to wrap it in a Custom Hook. This ensures the worker is created when the component mounts and cleaned up (terminated) when it unmounts to prevent memory leaks.
+
+1. Create the Worker File
+Create a separate file (e.g., src/app.worker.js).
+
+```
+// app.worker.js
+/* eslint-disable-next-line no-restricted-globals */
+self.onmessage = (e) => {
+  const { data } = e;
+  // Imagine a heavy filter or sort on 100,000 items
+  const result = data.sort((a, b) => a - b); 
+  self.postMessage(result);
+};
+```
+
+
+2. Connect it to a React Component
+In modern React (using Vite or Webpack 5), you can import the worker using the new Worker() syntax with a URL pointer.
+
+
+```
+import React, { useState, useEffect, useRef } from 'react';
+
+function DataProcessor({ heavyData }) {
+  const [result, setResult] = useState(null);
+  const workerRef = useRef();
+
+  useEffect(() => {
+    // Initialize the worker
+    workerRef.current = new Worker(new URL('./app.worker.js', import.meta.url));
+
+    // Listen for results
+    workerRef.current.onmessage = (event) => {
+      setResult(event.data);
+    };
+
+    // Cleanup: Kill the worker when component unmounts
+    return () => {
+      workerRef.current.terminate();
+    };
+  }, []);
+
+  const handleStartSort = () => {
+    workerRef.current.postMessage(heavyData);
+  };
+
+  return (
+    <div>
+      <button onClick={handleStartSort}>Sort Data in Background</button>
+      {result && <p>Processed {result.length} items!</p>}
+    </div>
+  );
+}
+```
+
+
+⚡ Integration with React Features
+Using Libraries (The Easy Way)
+If you don't want to manage the postMessage boilerplate, libraries like comlink (by Google) allow you to treat the Worker as if it were a local asynchronous function.
+
+Handling "Loading" States
+Since Web Workers are asynchronous by nature, they fit perfectly with React's state management. You should always track the "busy" state to show a spinner.
+
+
+```
+const [isCalculating, setIsCalculating] = useState(false);
+
+const runCalc = () => {
+  setIsCalculating(true);
+  worker.postMessage(data);
+};
+
+worker.onmessage = (e) => {
+  setResult(e.data);
+  setIsCalculating(false);
+};
+```
+
+
+⚠️ Common Pitfalls in React
+1. The Build Error
+In older React setups (Create React App < 5), you often needed a "worker-loader" for Webpack. In Vite, it works out of the box by adding ?worker to the import:
+import MyWorker from './worker?worker'
+
+2. Excessive Messaging
+Sending massive amounts of data back and forth between the Main Thread and the Worker can actually be slower than just doing the work on the main thread.
+
+Solution: Use Transferable Objects (like ArrayBuffer) for large datasets so you "move" the memory instead of cloning it.
+
+3. Multiple Instances
+If you define new Worker() inside the body of a component without useEffect or useMemo, you will create a new background thread every time the component re-renders. This will quickly crash the browser. Always use useRef or useEffect.
+
+
+<img width="636" height="253" alt="Screenshot 2026-02-24 at 1 52 40 PM" src="https://github.com/user-attachments/assets/f5577d6e-fbc1-4ddf-9928-0f0f64448eee" />
+
+
+
+
+
+
+
